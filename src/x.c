@@ -359,22 +359,23 @@ void x_window_kill(xcb_window_t window, kill_window_t kill_window) {
 
 static void x_draw_title_border(Con *con, struct deco_render_params *p, surface_t *dest_surface) {
     Rect *dr = &(con->deco_rect);
+    const int border_width = logical_px(1);
 
     /* Left */
     draw_util_rectangle(dest_surface, p->color->border,
-                        dr->x, dr->y, 1, dr->height);
+                        dr->x, dr->y, border_width, dr->height);
 
     /* Right */
     draw_util_rectangle(dest_surface, p->color->border,
-                        dr->x + dr->width - 1, dr->y, 1, dr->height);
+                        dr->x + dr->width - border_width, dr->y, border_width, dr->height);
 
     /* Top */
     draw_util_rectangle(dest_surface, p->color->border,
-                        dr->x, dr->y, dr->width, 1);
+                        dr->x, dr->y, dr->width, border_width);
 
     /* Bottom */
     draw_util_rectangle(dest_surface, p->color->border,
-                        dr->x, dr->y + dr->height - 1, dr->width, 1);
+                        dr->x, dr->y + dr->height - border_width, dr->width, border_width);
 }
 
 static void x_draw_decoration_after_title(Con *con, struct deco_render_params *p, surface_t *dest_surface) {
