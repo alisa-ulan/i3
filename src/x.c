@@ -703,7 +703,8 @@ void x_draw_decoration(Con *con) {
 
     /* icon_padding is applied horizontally only, the icon will always use all
      * available vertical space. */
-    int icon_size = max(0, con->deco_rect.height - logical_px(2));
+    const int border_width = logical_px(1);
+    int icon_size = max(0, con->deco_rect.height - 2 * border_width);
     int icon_padding = logical_px(max(1, con->window_icon_padding));
     int total_icon_space = icon_size + 2 * icon_padding;
     const bool has_icon = (con->window_icon_padding > -1) && win && win->icon && (total_icon_space < deco_width);
@@ -756,7 +757,7 @@ void x_draw_decoration(Con *con) {
             win->icon,
             dest_surface,
             con->deco_rect.x + icon_offset_x,
-            con->deco_rect.y + logical_px(1),
+            con->deco_rect.y + border_width,
             icon_size,
             icon_size);
     }
