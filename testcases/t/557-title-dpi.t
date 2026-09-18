@@ -1,9 +1,23 @@
 #!perl
 # vim:ts=4:sw=4:expandtab
-# Verify title padding and unclipped square icons at integer and fractional DPI.
+#
+# Please read the following documents before working on tests:
+# • https://build.i3wm.org/docs/testsuite.html
+#   (or docs/testsuite)
+#
+# • https://build.i3wm.org/docs/lib-i3test.html
+#   (alternatively: perldoc ./testcases/lib/i3test.pm)
+#
+# • https://build.i3wm.org/docs/ipc.html
+#   (or docs/ipc)
+#
+# • https://i3wm.org/downloads/modern_perl_a4.pdf
+#   (unless you are already familiar with Perl)
+#
+# Verify title borders, padding and unclipped icons at integer and fractional DPI.
+# Bug still in: 4.25-25-g9be3249a
 use i3test i3_autostart => 0;
 use X11::XCB qw(PROP_MODE_REPLACE IMAGE_FORMAT_Z_PIXMAP);
-use File::Path qw(make_path);
 use IPC::Run qw(start timeout);
 
 sub title_pixels {
@@ -15,8 +29,6 @@ sub title_pixels {
     die 'Expected a 24-bit RGB or 32-bit ARGB title image'
         unless ($image->{depth} == 24 || $image->{depth} == 32)
             && length($image->{data}) == 4 * $width * $height;
-    # Drop the unused alpha byte for the RGB assertions and optional PPM.
-    $image->{data} =~ s/(...)./$1/gs;
     return $image->{data};
 }
 
@@ -62,15 +74,17 @@ client.focused #ff0000 #263548 #ffffff #ff0000 #ff0000
 for_window [class=".*"] title_window_icon padding 3px
 CONFIG
     my $workspace = fresh_workspace;
-    my $window = open_window(name => 'DPI title: Hg / square icon', wm_class => 'dpi-test', dont_map => 1);
-    $window->_create;
-    my @icon = (64, 64, (0xff00ff00) x (64 * 64));
-    $x->change_property(PROP_MODE_REPLACE, $window->id,
-        $x->atom(name => '_NET_WM_ICON')->id, $x->atom(name => 'CARDINAL')->id,
-        32, scalar(@icon), pack('L*', @icon));
-    $window->map;
-    wait_for_map($window);
-    sync_with_i3;
+    my $window = open_window(
+        name => 'DPI title: Hg / square icon',
+        wm_class => 'dpi-test',
+        before_map => sub {
+            my ($window) = @_;
+            my @icon = (64, 64, (0xff00ff00) x (64 * 64));
+            $x->change_property(PROP_MODE_REPLACE, $window->id,
+                $x->atom(name => '_NET_WM_ICON')->id, $x->atom(name => 'CARDINAL')->id,
+                32, scalar(@icon), pack('L*', @icon));
+        },
+    );
     my ($nodes) = get_ws_content($workspace);
     my $deco = $nodes->[0]->{deco_rect};
     my ($width, $height) = @{$deco}{qw(width height)};
@@ -81,28 +95,39 @@ CONFIG
         "$dpi DPI: vertical padding scales around the same fixed-pixel font") if $dpi != 96;
 
     my $pixels = title_pixels($x, $window->id, $width, $height);
-    my (@xs, @ys);
+    # Measure across each edge, away from corners and title contents.
+    for my $edge (
+        ['left', 0, int($height / 2), 1, 0],
+        ['right', $width - 1, int($height / 2), -1, 0],
+        ['top', int($width / 2), 0, 0, 1],
+        ['bottom', int($width / 2), $height - 1, 0, -1],
+    ) {
+        my ($name, $col, $row, $dx, $dy) = @{$edge};
+        my $thickness = 0;
+        while ($col >= 0 && $col < $width && $row >= 0 && $row < $height
+            && substr($pixels, 4 * ($row * $width + $col), 3) eq "\xff\0\0") {
+            ++$thickness;
+            $col += $dx;
+            $row += $dy;
+        }
+        is($thickness, $border, "$dpi DPI: $name title border has the scaled thickness");
+    }
+
+    my ($left, $top, $right, $bottom) = ($width, $height, -1, -1);
     for my $y (0 .. $height - 1) {
         for my $col (0 .. $width - 1) {
-            if (substr($pixels, 3 * ($y * $width + $col), 3) eq "\0\xff\0") {
-                push @xs, $col;
-                push @ys, $y;
+            if (substr($pixels, 4 * ($y * $width + $col), 3) eq "\0\xff\0") {
+                $left = $col if $col < $left;
+                $right = $col if $col > $right;
+                $top = $y if $y < $top;
+                $bottom = $y if $y > $bottom;
             }
         }
     }
-    if (ok(@xs > 0, "$dpi DPI: icon is rendered")) {
-        my ($left, $right) = (sort { $a <=> $b } @xs)[0, -1];
-        my ($top, $bottom) = (sort { $a <=> $b } @ys)[0, -1];
+    if (ok($right >= 0, "$dpi DPI: icon is rendered")) {
         is($right - $left, $bottom - $top, "$dpi DPI: square icon is not clipped by the title border");
         is($top, $border, "$dpi DPI: icon clears the top border");
         is($height - 1 - $bottom, $border, "$dpi DPI: icon clears the bottom border equally");
-    }
-    # Optional actual-render samples for manual review; not required for assertions.
-    if (my $dir = $ENV{I3_TEST_DPI_SAMPLES}) {
-        make_path($dir);
-        open(my $image, '>:raw', "$dir/title-$dpi.ppm") or die $!;
-        print $image "P6\n$width $height\n255\n", $pixels;
-        close($image);
     }
     $window->unmap;
     exit_gracefully($pid);
